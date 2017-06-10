@@ -137,6 +137,7 @@ class BaseController(object):
             self._cache_delete(o)
         else:
             log('Unhandled Event:', t, ev['raw_object'])
+            return
 
         self._update_rv(o.metadata.resource_version)
 
