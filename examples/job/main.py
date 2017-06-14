@@ -4,8 +4,8 @@ from datetime import datetime
 from dateutil.tz import tzutc
 from dateutil.relativedelta import relativedelta
 
-from kontroller import BaseController, client, log, oid
-from kubernetes import watch
+from kontroller import BaseController, log, oid
+from kubernetes import client, watch
 from kubernetes.config.incluster_config import InClusterConfigLoader
 
 import urllib3

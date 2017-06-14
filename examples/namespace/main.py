@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-from kontroller import BaseController, client, log, oid
+from kontroller import BaseController, log, oid
+from kubernetes import client, watch
 from kubernetes.config.incluster_config import InClusterConfigLoader
 
 import urllib3
@@ -10,8 +11,8 @@ class NamespaceWatcher(BaseController):
 
     def start(self):
         self.core_v1 = client.CoreV1Api()
-        self.create_watcher(self.core_v1.list_namespace)
-        self.create_watcher(self.core_v1.list_pod_for_all_namespaces)
+        self.create_watcher(self.core_v1.list_namespace, label_selector='teste.value=true')
+#        self.create_watcher(self.core_v1.list_pod_for_all_namespaces)
         self.start_controller()
 
 
@@ -48,7 +49,7 @@ def main():
 
     client.configuration.verify_ssl = False
 
-    nw = NamespaceWatcher()
+    nw = NamespaceWatcher(watch)
     nw.start()
 
 
