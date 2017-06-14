@@ -42,12 +42,12 @@ class BaseController(object):
         self.dt.start()
 
 
-    def create_watcher(self, list_func):
+    def create_watcher(self, list_func, *vargs, **kwargs):
         log('Loading objects with %s...' % list_func.__name__)
-        self._cache_add_list(list_func())
+        self._cache_add_list(list_func(*vargs, **kwargs))
         self._process_objects(booting=True)
 
-        self.evt = Thread(target=partial(self._update_worker, list_func), daemon=True)
+        self.evt = Thread(target=partial(self._update_worker, list_func, *vargs, **kwargs), daemon=True)
         self.evt.start()
 
 
@@ -106,11 +106,11 @@ class BaseController(object):
             self.rv = rv
 
 
-    def _update_worker(self, list_func):
+    def _update_worker(self, list_func, *vargs, **kwargs):
         log('Started stream thread {} with {}'.format(get_ident(), list_func.__name__))
         while True:
             try:
-                for ev in self.w.stream(list_func, resource_version=self.rv):
+                for ev in self.w.stream(list_func, resource_version=self.rv, *vargs, **kwargs):
                     self._enqueue_event(ev)
             except:
                 traceback.print_exc()
