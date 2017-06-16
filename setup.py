@@ -1,7 +1,7 @@
 from setuptools import setup
 
 PACKAGE_NAME = "kontroller"
-KONTROLLER_VERSION = "0.0.1"
+KONTROLLER_VERSION = "0.0.2"
 DEVELOPMENT_STATUS = "3 - Alpha"
 
 #with open('requirements.txt') as f:

@@ -43,10 +43,6 @@ class BaseController(object):
 
 
     def create_watcher(self, list_func, *vargs, **kwargs):
-        log('Loading objects with %s...' % list_func.__name__)
-        self._cache_add_list(list_func(*vargs, **kwargs))
-        self._process_objects(booting=True)
-
         self.evt = Thread(target=partial(self._update_worker, list_func, *vargs, **kwargs), daemon=True)
         self.evt.start()
 
@@ -70,7 +66,7 @@ class BaseController(object):
                         mark = dt2ts(datetime.utcnow())
 
 
-    def process_objects(self, *os):
+    def process_objects(self, objs):
         pass
 
 
@@ -90,32 +86,47 @@ class BaseController(object):
         self.dq.put({'object': o, 'func': delete_func})
 
 
-    def _cache_add_list(self,  obj_list):
-        kind, api_version = obj_list.kind[:-4], obj_list.api_version
-        self._update_rv(obj_list.metadata.resource_version)
-        for o in obj_list.items:
-            o.kind = kind
-            o.api_version  = api_version
-            self._cache_add(o)
-            self._update_rv(o.metadata.resource_version)
-
-
-    def _update_rv(self, rv):
-        rv = int(rv)
-        if self.rv < rv:
-            self.rv = rv
-
-
     def _update_worker(self, list_func, *vargs, **kwargs):
         log('Started stream thread {} with {}'.format(get_ident(), list_func.__name__))
+
         while True:
             try:
-                for ev in self.w.stream(list_func, resource_version=self.rv, *vargs, **kwargs):
+                log('Loading objects with %s...' % list_func.__name__)
+
+                obj_list = list_func(*vargs, **kwargs)
+                kind, api_version = obj_list.kind[:-4], obj_list.api_version
+                self._enqueue_event({
+                    'type': 'FLUSH',
+                    'object': kind
+                })
+                self._enqueue_event({
+                    'type': 'UPDATE_RESOURCEVERSION',
+                    'object': obj_list.metadata.resource_version
+                })
+
+                for o in obj_list.items:
+                    o.kind = kind
+                    o.api_version  = api_version
+
+                    self._enqueue_event({
+                        'type': 'INIT',
+                        'object': o
+                    })
+
+                self._enqueue_event({
+                    'type': 'BOOT',
+                    'object': None
+                })
+
+                for ev in self.w.stream(list_func, resource_version=obj_list.metadata.resource_version, *vargs, **kwargs):
                     self._enqueue_event(ev)
-            except:
+
+                log('Stream %s was closed. Restarting...' % list_func.__name__)
+            except Exception as ex:
                 traceback.print_exc()
-                log('Stream thread has died. Restarting...')
-                time.sleep(3)
+                log('Stream thread %s has failed: %s:%s. Restarting...' % (list_func.__name__, ex.__class__, ex))
+
+            time.sleep(1)
 
 
     def _enqueue_event(self, ev):
@@ -125,7 +136,15 @@ class BaseController(object):
     def _process_event(self, ev):
         t, o = ev['type'], ev['object']
 
-        if t == 'ADDED':
+        if t == 'INIT':
+            self._cache_add(o)
+        elif t == 'BOOT':
+            self._process_objects(booting=True)
+        elif t == 'FLUSH':
+            self._cache_flush(o)
+        elif t == 'UPDATE_RESOURCEVERSION':
+            self._update_rv(o)
+        elif t == 'ADDED':
             self._cache_add(o)
             self.added_object(o)
         elif t == 'MODIFIED':
@@ -136,41 +155,60 @@ class BaseController(object):
             self.deleted_object(o)
             self._cache_delete(o)
         else:
-            log('Unhandled Event:', t, ev['raw_object'])
-            return
+            log('Unhandled event:', t)
 
-        self._update_rv(o.metadata.resource_version)
+
+    def _update_rv(self, rv):
+        try:
+            rv = int(rv)
+            if self.rv < rv:
+                self.rv = rv
+        except TypeError:
+            pass
+
+    def _cache_flush(self, kind):
+        with self.l:
+            if kind in self.c:
+                del self.c[kind]
+                self.c[kind] = {}
 
 
     def _cache_add(self, o):
         with self.l:
             #log('+', oid(o))
-            self.c[o.metadata.uid] = o
+            if o.kind not in self.c:
+                self.c[o.kind] = {}
+            self.c[o.kind][o.metadata.uid] = o
 
 
     def _cache_get(self, o):
         with self.l:
-            return self.c.get(o.metadata.uid, None)
+            if o.kind in self.c:
+                return self.c[o.kind].get(o.metadata.uid, None)
 
 
     def _cache_update(self, o):
         #log('=', oid(o))
         uid = o.metadata.uid
         with self.l:
-            self.c[uid] = o
+            if o.kind not in self.c:
+                self.c[o.kind] = {}
+            self.c[o.kind][uid] = o
 
 
     def _cache_delete(self, o):
         uid = o.metadata.uid
         with self.l:
-            if uid in self.c:
-                #log('-', oid(o))
-                del self.c[uid]
+            if o.kind in self.c:
+                if uid in self.c[o.kind]:
+                    #log('-', oid(o))
+                    del self.c[o.kind][uid]
 
 
     def _process_objects(self, booting):
         with self.l:
-            return bool(self.process_objects(self.c, booting))
+            for kind, objs in self.c.items():
+                self.process_objects(objs, booting)
 
 
     def _delete_worker(self):
