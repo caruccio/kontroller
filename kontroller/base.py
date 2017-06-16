@@ -66,7 +66,7 @@ class BaseController(object):
                         mark = dt2ts(datetime.utcnow())
 
 
-    def process_objects(self, objs):
+    def process_objects(self, objs, kind, booting=False):
         pass
 
 
@@ -208,7 +208,7 @@ class BaseController(object):
     def _process_objects(self, booting):
         with self.l:
             for kind, objs in self.c.items():
-                self.process_objects(objs, booting)
+                self.process_objects(objs, kind, booting)
 
 
     def _delete_worker(self):
